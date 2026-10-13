@@ -860,8 +860,16 @@ function smoothDamp(cur, goal, vel, smoothTime, dt) { // standard "SmoothDamp" s
 }
 let stats = { modes: {}, est: 0, delays: [] }, lastFull = 0, lastFrame = 0;
 
+// Pause vehicle drawing while the map zooms (pinch, wheel, double-tap, fly). During a zoom Leaflet stretches the
+// existing canvas with a CSS transform and redraws only at the end; redrawing vehicles mid-zoom (positions for the
+// in-between zoom on top of the stretched canvas) scaled them twice, then they jumped back when the zoom ended.
+let mapZooming = false;
+map.on("zoomstart", () => mapZooming = true);
+map.on("zoomend", () => mapZooming = false);
+
 function frame(now) {
   requestAnimationFrame(frame);
+  if (mapZooming || map._animatingZoom) return;
   // Following: up to ~60 fps (smooth camera without paying 2-2.4x on 120/144 Hz screens). Otherwise the rate
   // depends on zoom: zoomed out, vehicles move far less than a pixel between frames, so redraw less often.
   if (now - lastFrame < (following ? FOLLOW_FRAME_MS : frameMsForZoom(map.getZoom())) || !map.hasLayer(layer)) return;
