@@ -322,7 +322,8 @@ function attachVehicle(marker, opts) {
   marker.on("click", () => focusOn({ marker, ...opts }));
 }
 function moveTooltip(marker, pos) {
-  if (marker.isTooltipOpen()) marker.getTooltip().setLatLng(pos);
+  // getTooltip() is undefined on touch screens (no tooltip bound); Leaflet's isTooltipOpen() would throw there
+  if (marker.getTooltip()?.isOpen()) marker.getTooltip().setLatLng(pos);
 }
 
 // --- focus: info panel + camera follow ---------------------------------------
