@@ -3,7 +3,7 @@
 (() => {
 const JP = "https://api.entur.io/journey-planner/v3/graphql";
 const VP = "https://api.entur.io/realtime/v2/vehicles/graphql";
-const HEADERS = { "Content-Type": "application/json", "ET-Client-Name": "oslo-traffic-registry" };
+const HEADERS = { "Content-Type": "application/json", "ET-Client-Name": "zeyln-oslotransitlive" };
 const BBOX = { minLat: 59.80, minLon: 10.45, maxLat: 60.05, maxLon: 11.05 };
 const SCHEDULE_MS = 60e3, GPS_MS = 15e3, TICK_MS = 1000, DETAIL_BATCH = 30, CALLS_BATCH = 50;
 // Saturated, light tones that read well on the dark map
