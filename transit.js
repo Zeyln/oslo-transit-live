@@ -9,6 +9,10 @@ const SCHEDULE_MS = 60e3, GPS_MS = 15e3, TICK_MS = 1000, DETAIL_BATCH = 30, CALL
 // Saturated, light tones that read well on the dark map
 const COLORS = { bus: "#ff453a", tram: "#40b4ff", metro: "#ffa31a", rail: "#4cd964", water: "#bf8cff", coach: "#f0c060" };
 const color = m => COLORS[m?.toLowerCase()] ?? "#666";
+// Escape text from the APIs (stop names, destinations, line codes…) before it goes into innerHTML,
+// so data can never be interpreted as markup or script
+const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ESC[ch]);
 
 // --- passenger estimates ----------------------------------------------------
 // Feeds only give an occupancy category, so we turn it into an approximate head count:
@@ -366,7 +370,7 @@ function focusOn(f) {
 // so the camera move can land on a fully drawn map. Resolves when loaded or after `timeout` ms.
 function preloadTiles(center, zoom, timeout = 2000) {
   const tiles = [];
-  map.eachLayer(l => { if (l.tileUrl) tiles.push(l); }); // DarkTiles (index.html)
+  map.eachLayer(l => { if (l.tileUrl) tiles.push(l); }); // DarkTiles (map.js)
   const size = 256, c = map.project(center, zoom), half = map.getSize().divideBy(2);
   const min = c.subtract(half).divideBy(size).floor().subtract([1, 1]), max = c.add(half).divideBy(size).floor().add([1, 1]);
   const loads = [];
@@ -531,19 +535,19 @@ function renderInfo() {
   panelEl.hidden = false;
   panelEl.innerHTML = `
     <div class="ip-head"><i style="background:${color(mode)};box-shadow:0 0 8px ${color(mode)}"></i>
-      <div><b>${mode} ${i.line}</b><div class="ip-dest">→ ${i.dest}</div></div>
+      <div><b>${esc(mode)} ${esc(i.line)}</b><div class="ip-dest">→ ${esc(i.dest)}</div></div>
       <button data-close title="Close (Esc)">×</button></div>
     <div class="ip-row"><span>Delay</span><b>${fmtDelay(i.delay)}</b></div>
     ${i.occ ? `<div class="ip-row"><span>Passengers</span><b>${loadBar(i.occ.frac)} ~${i.occ.n}
       <span class="ip-est">est. · capacity ~${i.occ.total}</span></b></div>` : ""}
     ${i.sim ? `<div class="ip-row"><span>On board</span><b>${loadBar(i.sim.onboard / i.sim.total)} ~${i.sim.onboard}
       <span class="ip-est">simulated · capacity ~${i.sim.total}</span></b></div>` : ""}
-    ${i.next ? `<div class="ip-row"><span>${i.stopped ? "At stop" : "Next stop"}</span><b>${i.next}</b></div>` : ""}
-    <div class="ip-row"><span>Position</span><b>${i.real ? `GPS · ${i.op}` : i.rt ? "Estimated (live times)" : "Estimated (timetable)"}</b></div>
+    ${i.next ? `<div class="ip-row"><span>${i.stopped ? "At stop" : "Next stop"}</span><b>${esc(i.next)}</b></div>` : ""}
+    <div class="ip-row"><span>Position</span><b>${i.real ? `GPS · ${esc(i.op)}` : i.rt ? "Estimated (live times)" : "Estimated (timetable)"}</b></div>
     <div class="ip-row ip-heading"><span>Heading</span>${compassHtml()}</div>
     <div class="ip-row"><span>Coordinates</span><b class="ip-coords">${coordsHtml(focus.marker.getLatLng())}</b></div>
     ${stops.length ? `<ol class="ip-stops">${stops.map((c, k) => `<li class="${c.dep < now ? "past" : ""}">
-      <span class="n">${c.name}${simTxt(c, k)}</span><span class="v">${hhmm(c.dep)}${Math.abs(c.delay) >= 60 ? ` <em>${fmtDelay(c.delay)}</em>` : ""}</span></li>`).join("")}</ol>
+      <span class="n">${esc(c.name)}${simTxt(c, k)}</span><span class="v">${hhmm(c.dep)}${Math.abs(c.delay) >= 60 ? ` <em>${fmtDelay(c.delay)}</em>` : ""}</span></li>`).join("")}</ol>
       ${sim.length ? `<div class="ip-note">Boarding (+) and alighting (−) numbers are simulated from time of day, stop size and delay.</div>` : ""}` : ""}
     <div class="ip-foot">${ended ? "Trip ended" : flying ? "Loading map…" : following ? "● Following" : `<button data-follow>Follow again</button>`}</div>`;
   updateCompass(); // fill heading text straight away (the needle is already at its last angle)
@@ -753,12 +757,12 @@ const fmtDelay = s => s == null ? "–" : Math.abs(s) < 60 ? "on time" : (s > 0 
 
 function tooltipHtml(i) {
   const mode = i.mode?.toLowerCase() ?? "";
-  return `<div class="t-head"><i style="background:${color(mode)}"></i><b>${mode} ${i.line}</b> → ${i.dest}</div>` +
-    (i.next ? `<div>${i.stopped ? "At" : "Next"}: ${i.next}</div>` : "") +
+  return `<div class="t-head"><i style="background:${color(mode)}"></i><b>${esc(mode)} ${esc(i.line)}</b> → ${esc(i.dest)}</div>` +
+    (i.next ? `<div>${i.stopped ? "At" : "Next"}: ${esc(i.next)}</div>` : "") +
     `<div>${fmtDelay(i.delay)}</div>` +
     (i.occ ? `<div>${loadBar(i.occ.frac)} ~${i.occ.n} passengers <span class="t-est">est.</span></div>` : "") +
     (i.sim ? `<div>${loadBar(i.sim.onboard / i.sim.total)} ~${i.sim.onboard} on board <span class="t-est">sim.</span></div>` : "") +
-    `<div class="t-src">${i.real ? `GPS position · ${i.op}` : i.rt ? "Estimated from live departure times" : "Estimated from timetable"}</div>`;
+    `<div class="t-src">${i.real ? `GPS position · ${esc(i.op)}` : i.rt ? "Estimated from live departure times" : "Estimated from timetable"}</div>`;
 }
 
 // --- simulated passenger totals for the dashboard ------------------------------
@@ -896,7 +900,7 @@ function frame(now) {
       [camFloat.x, camVel.x] = smoothDamp(camFloat.x, goal.x, camVel.x, CAMERA_SMOOTH_MS / 1000, s);
       [camFloat.y, camVel.y] = smoothDamp(camFloat.y, goal.y, camVel.y, CAMERA_SMOOTH_MS / 1000, s);
       // Anti-flicker on: glide at fractional positions while the map shows pre-softened tiles (DarkTiles in
-      // index.html), which removes the sub-pixel detail that would shimmer. Off: snap to physical pixels instead.
+      // map.js), which removes the sub-pixel detail that would shimmer. Off: snap to physical pixels instead.
       const dpr = window.devicePixelRatio || 1;
       const target = ANTI_FLICKER ? camFloat.clone()
         : L.point(Math.round(camFloat.x * dpr) / dpr, Math.round(camFloat.y * dpr) / dpr);
@@ -924,13 +928,13 @@ function renderPanel() {
   document.getElementById("tTotal").textContent = total.toLocaleString("nb-NO") + " vehicles";
   document.getElementById("tSub").textContent = `${gps.size} GPS · ${est} estimated (Ruter)`;
   document.getElementById("tModes").innerHTML = Object.entries(modes).sort((a, b) => b[1] - a[1])
-    .map(([m, n]) => `<span><i style="background:${color(m)}"></i>${m} <b>${n}</b></span>`).join("");
+    .map(([m, n]) => `<span><i style="background:${color(m)}"></i>${esc(m)} <b>${n}</b></span>`).join("");
   const late = delays.filter(d => d.delay >= 60);
   const avg = delays.length ? delays.reduce((a, d) => a + Math.max(d.delay, 0), 0) / delays.length : 0;
   document.getElementById("tDelay").textContent = delays.length
     ? `${Math.round(100 * late.length / delays.length)}% running ≥1 min late · avg ${(avg / 60).toFixed(1)} min` : "";
   document.getElementById("tLate").innerHTML = late.sort((a, b) => b.delay - a.delay).slice(0, 5)
-    .map(d => `<li><span class="n"><i style="background:${color(d.mode)}"></i>${d.line} → ${d.dest}</span><span class="v">${fmtDelay(d.delay)}</span></li>`).join("");
+    .map(d => `<li><span class="n"><i style="background:${color(d.mode)}"></i>${esc(d.line)} → ${esc(d.dest)}</span><span class="v">${fmtDelay(d.delay)}</span></li>`).join("");
   renderPax();
   renderTrends();
 }
@@ -943,10 +947,10 @@ function renderPax() {
   $("pAlight").textContent = fmtN(pax.alight);
   $("pSince").textContent = `since ${hhmm(pax.since)}`;
   $("pModes").innerHTML = Object.entries(pax.byMode).sort((a, b) => b[1].board - a[1].board)
-    .map(([m, v]) => `<li><span class="n"><i style="background:${color(m)}"></i>${m}</span>
+    .map(([m, v]) => `<li><span class="n"><i style="background:${color(m)}"></i>${esc(m)}</span>
       <span class="v"><b class="up">+${fmtN(v.board)}</b> <b class="down">−${fmtN(v.alight)}</b></span></li>`).join("");
   $("pStops").innerHTML = [...pax.byStop].sort((a, b) => (b[1].board + b[1].alight) - (a[1].board + a[1].alight)).slice(0, 5)
-    .map(([name, v]) => `<li><span class="n">${name}</span>
+    .map(([name, v]) => `<li><span class="n">${esc(name)}</span>
       <span class="v"><b class="up">+${fmtN(v.board)}</b> <b class="down">−${fmtN(v.alight)}</b></span></li>`).join("");
   drawPaxChart($("pChart"));
 }
@@ -1006,9 +1010,9 @@ function renderResults() {
     .sort((a, b) => a.name.toLowerCase().indexOf(q) - b.name.toLowerCase().indexOf(q) || a.name.localeCompare(b.name, "nb"))
     .slice(0, 6);
   searchResults.innerHTML = [
-    ...ls.map(l => `<li data-line="${l.line}"><span class="n"><i style="background:${color(l.mode)}"></i>Line ${l.line}
-      <span class="r">${l.mode ?? ""}</span></span><span class="v">${l.count} running</span></li>`),
-    ...ss.map(s => `<li data-stop="${s.name.replace(/"/g, "&quot;")}"><span class="n"><i class="stop"></i>${s.name}</span><span class="v">stop</span></li>`)
+    ...ls.map(l => `<li data-line="${esc(l.line)}"><span class="n"><i style="background:${color(l.mode)}"></i>Line ${esc(l.line)}
+      <span class="r">${esc(l.mode)}</span></span><span class="v">${l.count} running</span></li>`),
+    ...ss.map(s => `<li data-stop="${esc(s.name)}"><span class="n"><i class="stop"></i>${esc(s.name)}</span><span class="v">stop</span></li>`)
   ].join("") || `<li class="empty">No running line or known stop matches</li>`;
 }
 
@@ -1036,7 +1040,7 @@ function selectStop(name) {
   highlight = { type: "stop", name, ids: s.ids, pos: s.pos };
   L.circleMarker(s.pos, { pane: "route", interactive: false, radius: 9, weight: 2.5, color: "#fff", fill: false }).addTo(searchLayer);
   L.marker(s.pos, { pane: "route", interactive: false, keyboard: false,
-    icon: L.divIcon({ className: "zone-label", html: `<div class="zl stop-label"><b>${name}</b></div>`, iconSize: null }) }).addTo(searchLayer);
+    icon: L.divIcon({ className: "zone-label", html: `<div class="zl stop-label"><b>${esc(name)}</b></div>`, iconSize: null }) }).addTo(searchLayer);
   unfocus();
   map.flyTo(s.pos, Math.max(map.getZoom(), 16), { duration: 0.8 });
   afterSelect(name);
