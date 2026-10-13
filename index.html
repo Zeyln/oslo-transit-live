@@ -120,7 +120,6 @@
     background: #0e0f11cc; border: 1px solid var(--line); border-radius: 6px; font: 11px/1.35 system-ui, sans-serif; }
   .zone-label .zl b { display: block; font-size: 12px; color: var(--ink); }
   .zone-label .zl span { display: block; color: var(--muted); }
-  @media (max-width: 760px) { .trend-panel { width: calc(100% - 24px); max-height: 50%; } }
   .ip-sim { margin-left: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
   .ip-stops li.past .ip-sim { text-decoration: none; display: inline-block; } /* keep numbers readable on crossed-out stops */
   .ip-sim .up { color: #4cd964; font-weight: 600; }
@@ -151,10 +150,6 @@
   .ip-stops em { font-style: normal; color: #ff9f8a; }
   .ip-foot { margin-top: 12px; color: #4cd964; font-size: 13px; }
   .ip-foot button { padding: 4px 12px; }
-  /* phones: bottom sheet instead, so it never covers the vehicle in the centre */
-  @media (max-width: 760px) {
-    .info-panel { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; transform: none; max-height: 45%; }
-  }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -179,9 +174,63 @@
   .legend { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
   .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px;
     background: #ff453a; border: 1.5px solid #fff; box-shadow: 0 0 6px #ff453acc; }
+
+  /* phone-only controls (hidden on desktop) and the info panel's "More" toggle */
+  .phone-only, .ip-more-btn { display: none; }
+
+  /* ---------- Phone layout ----------
+     Full-screen map under a slim header. The dashboard is a bottom sheet (tap the summary bar to open);
+     Movement trends opens from the header. While a vehicle is focused, both hide and the info panel is a
+     compact card with secondary details behind "More". */
   @media (max-width: 760px) {
-    body { grid-template-columns: 1fr; grid-template-rows: auto 55vh auto; }
-    #map { grid-row: 2; } aside { grid-row: 3; border-right: 0; }
+    html, body { overflow: hidden; }
+    body { display: block; }
+    .phone-only { display: inline-flex; }
+    header { position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 1100; padding: 0 12px;
+      align-items: center; flex-wrap: nowrap; gap: 10px; }
+    header h1 { font-size: 16px; white-space: nowrap; }
+    header #tStatus { display: none; }
+    #trendsBtn { margin-left: auto; font: inherit; font-size: 13px; color: var(--ink); background: #22252a;
+      border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+    body.trends-open #trendsBtn { background: #64d2ff; color: #0e0f11; border-color: #64d2ff; }
+    #map { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; }
+    .leaflet-control-zoom { display: none; } /* pinch to zoom */
+    .leaflet-control-attribution { font-size: 9px; }
+
+    /* dashboard as a bottom sheet: collapsed it shows only the summary bar */
+    aside { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1050; max-height: 72dvh; overflow-y: auto;
+      border-right: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 -8px 28px #000a;
+      transform: translateY(calc(100% - 56px)); transition: transform .25s ease; overscroll-behavior: contain; }
+    body.sheet-open aside { transform: none; }
+    .sheet-handle { position: sticky; top: 0; z-index: 1; width: 100%; height: 56px; align-items: center; gap: 10px;
+      padding: 0 16px; font: inherit; color: var(--ink); background: var(--panel); border: 0;
+      border-bottom: 1px solid var(--line); cursor: pointer; text-align: left; }
+    .sheet-handle .grip { position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px;
+      border-radius: 2px; background: #ffffff33; }
+    .sheet-handle #sheetSummary { flex: 1; font-variant-numeric: tabular-nums; }
+    .sheet-handle .chev { color: var(--muted); transition: transform .25s; }
+    body.sheet-open .sheet-handle .chev { transform: rotate(180deg); }
+
+    /* Movement trends: only when opened from the header */
+    .trend-panel { display: none; top: 8px; left: 8px; right: 8px; width: auto; max-height: 60%; }
+    body.trends-open .trend-panel { display: block; }
+
+    /* focused vehicle: nothing else competes for space */
+    body.focused aside, body.focused .trend-panel, body.focused #trendsBtn { display: none; }
+
+    /* compact info card along the bottom */
+    .info-panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; transform: none; max-height: 46dvh;
+      border-radius: 14px 14px 0 0; border-bottom: 0; padding: 12px 16px 14px; font-size: 14px; }
+    .ip-head { margin-bottom: 6px; }
+    .ip-head b { font-size: 18px; }
+    .ip-dest { font-size: 14px; }
+    .ip-row { padding: 3px 0; }
+    .ip-row b, .ip-coords span { white-space: normal; overflow-wrap: anywhere; }
+    .ip-compass svg { width: 38px; height: 38px; }
+    .ip-more { display: none; }
+    .info-panel.more-open .ip-more { display: block; }
+    .ip-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+    .ip-more-btn { display: inline-block; }
   }
 </style>
 </head>
@@ -189,8 +238,12 @@
 <header>
   <h1>Oslo Transit Live</h1>
   <span class="sub" id="tStatus">Loading departures…</span>
+  <button id="trendsBtn" class="phone-only" type="button">Trends</button>
 </header>
 <aside>
+  <button id="sheetHandle" class="sheet-handle phone-only" type="button" aria-expanded="false">
+    <span class="grip"></span><span id="sheetSummary">Loading…</span><span class="chev">▲</span>
+  </button>
   <section class="search">
     <h2>Find line or stop</h2>
     <div class="search-box">

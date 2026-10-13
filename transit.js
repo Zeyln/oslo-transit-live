@@ -318,7 +318,7 @@ const VehicleMarker = L.CircleMarker.extend({
 // opts: info() for tooltip/panel; optional calls() / sim() (stop list, simulated passengers),
 // route() (the journey, for the route preview) and heading() ({ deg, kmh } for the compass).
 function attachVehicle(marker, opts) {
-  marker.bindTooltip(() => tooltipHtml(opts.info()), { direction: "top", offset: [0, -10], className: "veh-tip" });
+  if (HOVER) marker.bindTooltip(() => tooltipHtml(opts.info()), { direction: "top", offset: [0, -10], className: "veh-tip" });
   marker.on("click", () => focusOn({ marker, ...opts }));
 }
 function moveTooltip(marker, pos) {
@@ -350,9 +350,37 @@ const panelEl = L.DomUtil.create("div", "info-panel", map.getContainer());
 panelEl.hidden = true;
 L.DomEvent.disableClickPropagation(panelEl); L.DomEvent.disableScrollPropagation(panelEl);
 panelEl.addEventListener("click", e => {
+  // Stop the click here explicitly: these buttons re-render the panel, which detaches the clicked button, and
+  // Leaflet (walking up from a detached element) would then take it for a click on the map and exit focus
+  e.stopPropagation();
   if (e.target.closest("[data-close]")) unfocus();
   if (e.target.closest("[data-follow]")) follow();
+  if (e.target.closest("[data-more]")) { moreOpen = !moreOpen; renderInfo(); }
 });
+let moreOpen = false; // phones: secondary details (position, heading, coordinates, stops) folded behind "More"
+
+// --- phone layout (≤ 760 px, see index.html): bottom-sheet dashboard, Trends button, compact focus card ---
+const PHONE = matchMedia("(max-width: 760px)");
+const HOVER = matchMedia("(hover: hover)").matches; // touch screens: a tap focuses, no hover tooltips
+function applyPhoneLayout() {
+  map.attributionControl.setPosition(PHONE.matches ? "topright" : "bottomright"); // clear of the bottom sheet / card
+  if (!PHONE.matches) document.body.classList.remove("sheet-open", "trends-open");
+  map.invalidateSize();
+}
+PHONE.addEventListener("change", applyPhoneLayout);
+applyPhoneLayout();
+const sheetHandle = document.getElementById("sheetHandle");
+sheetHandle.addEventListener("click", () => {
+  const open = document.body.classList.toggle("sheet-open");
+  sheetHandle.setAttribute("aria-expanded", open);
+  if (open) document.body.classList.remove("trends-open");
+});
+document.getElementById("trendsBtn").addEventListener("click", () => {
+  const open = document.body.classList.toggle("trends-open");
+  if (open) { document.body.classList.remove("sheet-open"); setTrendsCollapsed(false); renderTrends(); }
+});
+// Phones: keep the focused vehicle in the middle of the map area *above* the info card, not behind it
+const cameraOffsetY = () => PHONE.matches && !panelEl.hidden ? panelEl.offsetHeight / 2 : 0;
 
 function focusOn(f) {
   clearTimeout(exitTimer); // a pending "click outside" must not undo this focus
@@ -362,6 +390,8 @@ function focusOn(f) {
   f.marker.options.focused = true;
   f.marker.setRadius(f.marker.getRadius() + FOCUS_GROW);
   f.marker.bringToFront();
+  document.body.classList.add("focused"); // phones: hide the dashboard sheet and trends while focused
+  document.body.classList.remove("sheet-open", "trends-open");
   showRoute(f);
   follow();
   renderInfo();
@@ -405,6 +435,7 @@ function unfocus() {
   if (focus) { focus.marker.options.focused = false; focus.marker.setRadius(focus.marker.getRadius() - FOCUS_GROW); }
   focus = null; setFollowing(false); clearRoute();
   panelEl.hidden = true;
+  document.body.classList.remove("focused");
 }
 map.on("dragstart", () => { if (following) { setFollowing(false); renderInfo(); } }); // manual pan releases the camera
 // Clicking anywhere on the map outside a vehicle exits focus (vehicle clicks don't bubble to the map, see
@@ -543,13 +574,17 @@ function renderInfo() {
     ${i.sim ? `<div class="ip-row"><span>On board</span><b>${loadBar(i.sim.onboard / i.sim.total)} ~${i.sim.onboard}
       <span class="ip-est">simulated · capacity ~${i.sim.total}</span></b></div>` : ""}
     ${i.next ? `<div class="ip-row"><span>${i.stopped ? "At stop" : "Next stop"}</span><b>${esc(i.next)}</b></div>` : ""}
+    <div class="ip-more">
     <div class="ip-row"><span>Position</span><b>${i.real ? `GPS · ${esc(i.op)}` : i.rt ? "Estimated (live times)" : "Estimated (timetable)"}</b></div>
     <div class="ip-row ip-heading"><span>Heading</span>${compassHtml()}</div>
     <div class="ip-row"><span>Coordinates</span><b class="ip-coords">${coordsHtml(focus.marker.getLatLng())}</b></div>
     ${stops.length ? `<ol class="ip-stops">${stops.map((c, k) => `<li class="${c.dep < now ? "past" : ""}">
       <span class="n">${esc(c.name)}${simTxt(c, k)}</span><span class="v">${hhmm(c.dep)}${Math.abs(c.delay) >= 60 ? ` <em>${fmtDelay(c.delay)}</em>` : ""}</span></li>`).join("")}</ol>
       ${sim.length ? `<div class="ip-note">Boarding (+) and alighting (−) numbers are simulated from time of day, stop size and delay.</div>` : ""}` : ""}
-    <div class="ip-foot">${ended ? "Trip ended" : flying ? "Loading map…" : following ? "● Following" : `<button data-follow>Follow again</button>`}</div>`;
+    </div>
+    <div class="ip-foot"><span>${ended ? "Trip ended" : flying ? "Loading map…" : following ? "● Following" : `<button data-follow>Follow again</button>`}</span>
+      <button class="ip-more-btn" data-more>${moreOpen ? "Less" : "More"}</button></div>`;
+  panelEl.classList.toggle("more-open", moreOpen);
   updateCompass(); // fill heading text straight away (the needle is already at its last angle)
 }
 const journeys = new Map(); // id -> { id, date, line, mode, dest, shape, cum, calls, marker }
@@ -893,6 +928,7 @@ function frame(now) {
     if (!camFloat || camFloat.distanceTo(pane) > 1) { camFloat = pane.clone(); camVel = L.point(0, 0); } // (re)sync after zoom, drag, etc.
     // vehicle offset from centre as seen by the fractional camera
     const off = map.latLngToContainerPoint(focus.marker.getLatLng()).subtract(map.getSize().divideBy(2))
+      .add([0, cameraOffsetY()]) // phones: aim above the info card
       .add(camFloat.subtract(pane));
     if (!map.getSize().contains(off)) { map.panBy(off, { animate: false }); camFloat = null; } // far off (tab was hidden): snap
     else {
@@ -927,6 +963,8 @@ function renderPanel() {
   const total = Object.values(modes).reduce((a, b) => a + b, 0);
   document.getElementById("tTotal").textContent = total.toLocaleString("nb-NO") + " vehicles";
   document.getElementById("tSub").textContent = `${gps.size} GPS · ${est} estimated (Ruter)`;
+  document.getElementById("sheetSummary").textContent = // phone bottom-sheet bar
+    `${total.toLocaleString("nb-NO")} vehicles · ~${Math.round(pax.onboard).toLocaleString("nb-NO")} on board`;
   document.getElementById("tModes").innerHTML = Object.entries(modes).sort((a, b) => b[1] - a[1])
     .map(([m, n]) => `<span><i style="background:${color(m)}"></i>${esc(m)} <b>${n}</b></span>`).join("");
   const late = delays.filter(d => d.delay >= 60);
@@ -1154,6 +1192,7 @@ trendEl.innerHTML = `
     <label class="tp-toggle"><input type="checkbox" id="tpZonesToggle"> Show zones on map</label>
   </div>`;
 const tp = id => trendEl.querySelector("#" + id);
+function setTrendsCollapsed(v) { trendsCollapsed = v; applyCollapse(); } // phones open it expanded from the header
 function applyCollapse() {
   trendEl.classList.toggle("collapsed", trendsCollapsed);
   trendEl.querySelector("[data-collapse]").textContent = trendsCollapsed ? "+" : "–";
