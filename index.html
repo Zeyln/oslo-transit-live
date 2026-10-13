@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oslo Transit Live</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root { color-scheme: dark;
+    --bg: #0e0f11; --panel: #16181b; --ink: #e8e8e6; --muted: #8d929a; --line: #26292e; }
+  #map { background: #0e0f11; }
+  /* map tiles are darkened once in script (DarkTiles); these only pick which prepared copy shows.
+     .soft is the anti-flicker copy used while following a vehicle; it sits on top of .sharp and covers it */
+  .dark-tiles canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  .dark-tiles .soft { display: none; }
+  .anti-flicker .dark-tiles .soft { display: block; }
+  .leaflet-control-attribution { background: #0e0f11cc !important; color: var(--muted); }
+  .leaflet-control-attribution a { color: #9fb4d6; }
+  .leaflet-bar a { background: var(--panel); color: var(--ink); border-color: var(--line); }
+  .leaflet-bar a:hover { background: #22252a; }
+  .veh-tip { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 4px 14px #0009; font: 13px/1.4 system-ui, sans-serif; padding: 6px 9px; }
+  .veh-tip.leaflet-tooltip-top::before { border-top-color: var(--line); }
+  .veh-tip .t-head { text-transform: capitalize; margin-bottom: 2px; }
+  .veh-tip .t-head i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  .veh-tip .t-src { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .load { display: inline-block; width: 34px; height: 6px; border-radius: 3px; background: #ffffff22;
+    overflow: hidden; vertical-align: 1px; margin-right: 4px; }
+  .load > span { display: block; height: 100%; border-radius: 3px; }
+  .t-est, .ip-est { color: var(--muted); font-size: 11px; }
+  .ip-est { display: block; font-weight: 400; }
+  h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 4px; font-weight: 600; }
+  .pax-totals { display: flex; gap: 18px; margin-top: 8px; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .pax-totals .up, .pax-list .up { color: #4cd964; }
+  .pax-totals .down, .pax-list .down { color: #ff8a80; }
+  .pax-chart { width: 100%; height: 80px; display: block; margin-top: 10px; }
+  .pax-chart rect.up { fill: #4cd964; } .pax-chart rect.down { fill: #ff8a80; }
+  .pax-chart .axis { stroke: var(--line); }
+  .pax-axis { display: flex; justify-content: space-between; font-size: 10px; }
+  .pax-list li { font-size: 13px; font-variant-numeric: tabular-nums; text-transform: capitalize; }
+  #pStops li { text-transform: none; }
+  .pax-list i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  /* search */
+  .search-box { display: flex; gap: 6px; }
+  .search-box input { flex: 1; min-width: 0; padding: 7px 10px; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; }
+  .search-box input:focus { outline: none; border-color: #64d2ff; }
+  .search-box input::-webkit-search-cancel-button { display: none; }
+  .search-box button { font: inherit; font-size: 16px; color: var(--muted); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 0 10px; cursor: pointer; }
+  .search-results { margin-top: 6px; }
+  .search-results li { cursor: pointer; border-radius: 5px; padding: 5px 6px; font-size: 13px; }
+  .search-results li:hover { background: #ffffff12; }
+  .search-results li.empty { cursor: default; color: var(--muted); }
+  .search-results li.empty:hover { background: none; }
+  .search-results i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .search-results i.stop { border-radius: 2px; background: none; border: 2px solid var(--ink); width: 8px; height: 8px; }
+  .search-results .r { color: var(--muted); font-size: 11px; margin-left: 4px; text-transform: capitalize; }
+  .search-results .v { color: var(--muted); font-size: 12px; }
+  #searchStatus { margin-top: 6px; }
+  .stop-label { margin-top: -26px; }
+  /* compass in the info panel */
+  .ip-heading { align-items: center; }
+  .ip-compass { display: flex; align-items: center; gap: 10px; }
+  .ip-compass svg { width: 52px; height: 52px; flex: none; }
+  .ip-compass .ring { fill: #0e0f11; stroke: var(--line); stroke-width: 1.5; }
+  .ip-compass .tick { stroke: var(--muted); stroke-width: 1.5; }
+  .ip-compass .tick.minor { stroke-width: 1; opacity: .6; }
+  .ip-compass .n { fill: var(--muted); font: 600 7px system-ui, sans-serif; text-anchor: middle; }
+  .ip-compass .needle { transition: transform .45s ease-out; }
+  .ip-compass .needle path { fill: #fff; filter: drop-shadow(0 0 2px #64d2ff); }
+  .ip-compass.none .needle { opacity: .2; }
+  .ip-compass > div { text-align: right; }
+  .ip-compass b { display: block; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .ip-compass .spd { color: var(--muted); font-size: 12px; }
+  /* Movement trends panel (top-left of the map) */
+  .trend-panel { position: absolute; z-index: 1000; top: 12px; left: 12px; width: 300px; max-height: calc(100% - 24px);
+    overflow-y: auto; background: #16181bf2; color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 10px 36px #000b; padding: 12px 14px; font: 13px/1.45 system-ui, sans-serif; }
+  .trend-panel.collapsed .tp-body { display: none; }
+  .tp-head { display: flex; align-items: center; gap: 8px; }
+  .tp-head b { font-size: 15px; }
+  .tp-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+  .tp-head button { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1; }
+  .tp-body h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  .tp-tide { margin-top: 10px; }
+  .tp-curve { width: 100%; height: 64px; display: block; margin-top: 6px; }
+  .tp-curve .dem { fill: #ffffff10; }
+  .tp-curve .mid { stroke: var(--line); }
+  .tp-curve .tide { fill: none; stroke: #64d2ff; stroke-width: 2; }
+  .tp-curve .now { stroke: #ffffff55; stroke-dasharray: 2 3; }
+  .tp-curve .nowdot { fill: #fff; }
+  .tp-curve text { fill: var(--muted); font-size: 9px; }
+  .tp-axis { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); }
+  .tp-split { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #ffffff14; }
+  .tp-split span { display: block; height: 100%; }
+  .tp-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .tp-legend i, .tp-zones i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .tp-zones { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .tp-zones th { text-align: right; color: var(--muted); font-weight: 500; padding: 2px 4px; }
+  .tp-zones th:first-child, .tp-zones td:first-child { text-align: left; }
+  .tp-zones td { text-align: right; padding: 3px 4px; border-top: 1px solid var(--line); white-space: nowrap; }
+  .tp-arrow { color: var(--muted); width: 14px; }
+  .tp-note { margin-top: 8px; color: var(--muted); font-size: 11px; }
+  .tp-toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer; }
+  /* zone labels on the map (inner wrapper does the centring; Leaflet owns the outer element's transform) */
+  .zone-label { background: none; border: 0; }
+  .zone-label .zl { transform: translate(-50%, -50%); width: max-content; text-align: center; padding: 4px 8px;
+    background: #0e0f11cc; border: 1px solid var(--line); border-radius: 6px; font: 11px/1.35 system-ui, sans-serif; }
+  .zone-label .zl b { display: block; font-size: 12px; color: var(--ink); }
+  .zone-label .zl span { display: block; color: var(--muted); }
+  @media (max-width: 760px) { .trend-panel { width: calc(100% - 24px); max-height: 50%; } }
+  .ip-sim { margin-left: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .ip-stops li.past .ip-sim { text-decoration: none; display: inline-block; } /* keep numbers readable on crossed-out stops */
+  .ip-sim .up { color: #4cd964; font-weight: 600; }
+  .ip-sim .down { color: #ff8a80; font-weight: 600; }
+  .ip-note { margin-top: 8px; color: var(--muted); font-size: 11px; }
+  .ip-coords { font-variant-numeric: tabular-nums; font-size: 13px; }
+  .ip-coords span { display: block; white-space: nowrap; }
+  .ip-coords span + span { color: var(--muted); }
+  /* Info panel: right of the map centre (where the followed vehicle sits), vertically centred */
+  .info-panel { position: absolute; z-index: 1000; top: 50%; transform: translateY(-50%);
+    left: min(calc(50% + 80px), calc(100% - 396px)); width: 380px; max-height: calc(100% - 48px); overflow-y: auto;
+    background: #16181bf2; color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 10px 36px #000b; padding: 16px 18px; font: 15px/1.5 system-ui, sans-serif; }
+  .info-panel button { font: inherit; color: var(--ink); background: #22252a; border: 1px solid var(--line);
+    border-radius: 6px; cursor: pointer; }
+  .ip-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+  .ip-head > i { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; margin-top: 5px; }
+  .ip-head b { font-size: 21px; text-transform: capitalize; }
+  .ip-head > div { flex: 1; min-width: 0; }
+  .ip-dest { color: var(--muted); font-size: 16px; }
+  .ip-head button[data-close] { border: 0; background: none; font-size: 26px; line-height: 1; padding: 0 4px; color: var(--muted); }
+  .ip-row { display: flex; justify-content: space-between; gap: 14px; padding: 5px 0; }
+  .ip-row span { color: var(--muted); }
+  .ip-row b { font-weight: 500; text-align: right; }
+  .ip-stops { margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .ip-stops li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 3px 0; }
+  .ip-stops li.past { color: var(--muted); text-decoration: line-through; }
+  .ip-stops em { font-style: normal; color: #ff9f8a; }
+  .ip-foot { margin-top: 12px; color: #4cd964; font-size: 13px; }
+  .ip-foot button { padding: 4px 12px; }
+  /* phones: bottom sheet instead, so it never covers the vehicle in the centre */
+  @media (max-width: 760px) {
+    .info-panel { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; transform: none; max-height: 45%; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: grid; grid-template-columns: 340px 1fr; grid-template-rows: auto 1fr; }
+  header { grid-column: 1 / -1; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  header .sub { font-size: 13px; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; min-height: 0; }
+  #map { min-height: 0; }
+  section { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+  .big { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--muted); font-size: 12px; }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 4px; }
+  li .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li .v { font-variant-numeric: tabular-nums; text-align: right; }
+  .modes { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 13px; text-transform: capitalize; }
+  .modes b { font-variant-numeric: tabular-nums; }
+  .modes i, #tLate i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  .legend { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: -1px;
+    background: #ff453a; border: 1.5px solid #fff; box-shadow: 0 0 6px #ff453acc; }
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; grid-template-rows: auto 55vh auto; }
+    #map { grid-row: 2; } aside { grid-row: 3; border-right: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Oslo Transit Live</h1>
+  <span class="sub" id="tStatus">Loading departures…</span>
+</header>
+<aside>
+  <section class="search">
+    <h2>Find line or stop</h2>
+    <div class="search-box">
+      <input type="search" id="search" placeholder="e.g. 31, L1, Majorstuen" autocomplete="off" spellcheck="false">
+      <button id="searchClear" title="Clear search">×</button>
+    </div>
+    <ol id="searchResults" class="search-results"></ol>
+    <div class="sub" id="searchStatus"></div>
+  </section>
+  <section>
+    <h2>Moving now</h2>
+    <div class="big" id="tTotal">–</div>
+    <div class="sub" id="tSub"></div>
+    <div class="modes" id="tModes"></div>
+  </section>
+  <section>
+    <h2>Passengers · simulated</h2>
+    <div class="big" id="pOnboard">–</div>
+    <div class="sub">on board Ruter vehicles right now</div>
+    <div class="pax-totals">
+      <span class="up">+<b id="pBoard">0</b> boarded</span>
+      <span class="down">−<b id="pAlight">0</b> alighted</span>
+    </div>
+    <div class="sub" id="pSince"></div>
+    <svg class="pax-chart" id="pChart"></svg>
+    <div class="sub pax-axis"><span>30 min ago</span><span>per minute</span><span>now</span></div>
+    <h3>By type</h3>
+    <ol class="pax-list" id="pModes"></ol>
+    <h3>Busiest stops</h3>
+    <ol class="pax-list" id="pStops"></ol>
+  </section>
+  <section>
+    <h2>Punctuality</h2>
+    <div class="sub" id="tDelay">–</div>
+  </section>
+  <section>
+    <h2>Most delayed</h2>
+    <ol id="tLate"></ol>
+  </section>
+  <section>
+    <h2>Legend</h2>
+    <div class="legend">
+      <span><i style="width:16px;height:16px;border:2.5px solid #fff;background:#4cd964;box-shadow:0 0 6px #4cd964cc"></i>GPS position (trains, regional buses)</span>
+      <span><i></i>Ruter, estimated from live departure times</span>
+      <span><i style="opacity:.55"></i>Ruter, timetable only (no live data)</span>
+    </div>
+  </section>
+</aside>
+<div id="map"></div>
+
+<script>
+const map = L.map("map").setView([59.92, 10.77], 12);
+
+// Kartverket's grey map, turned dark *once per tile* as it loads, instead of with a CSS filter that the browser
+// re-applies while the map moves. Same maths as the old filter: invert(1) grayscale(1) contrast(.85) brightness(.5).
+// A softened copy (≈ CSS blur(0.5px)) is made on demand for the anti-flicker mode used while following a vehicle;
+// switching between the two is just showing/hiding prepared canvases.
+const TILE_CONTRAST = 0.85, TILE_BRIGHTNESS = 0.5;
+const TILE_LUT = new Uint8ClampedArray(256); // original luminance (0-255) -> final grey
+for (let l = 0; l < 256; l++) TILE_LUT[l] = (((1 - l / 255) - 0.5) * TILE_CONTRAST + 0.5) * TILE_BRIGHTNESS * 255;
+const SOFT_W = 0.107; // 3-tap Gaussian, sigma 0.5 px: [0.107, 0.786, 0.107]
+
+function tileCanvas(gray, cls) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256; c.className = cls;
+  const ctx = c.getContext("2d"), img = ctx.createImageData(256, 256), p = img.data;
+  for (let i = 0, k = 0; i < gray.length; i++, k += 4) { p[k] = p[k + 1] = p[k + 2] = gray[i]; p[k + 3] = 255; }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+function softGray(g) { // separable blur, edges clamped (seams are invisible at this radius)
+  const a = new Float32Array(g.length), out = new Uint8ClampedArray(g.length), c = 1 - 2 * SOFT_W;
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    const i = y * 256 + x;
+    a[i] = g[i] * c + SOFT_W * (g[x > 0 ? i - 1 : i] + g[x < 255 ? i + 1 : i]);
+  }
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    const i = y * 256 + x;
+    out[i] = a[i] * c + SOFT_W * (a[y > 0 ? i - 256 : i] + a[y < 255 ? i + 256 : i]);
+  }
+  return out;
+}
+
+const DarkTiles = L.GridLayer.extend({
+  initialize(url, options) { this._url = url; L.GridLayer.prototype.initialize.call(this, options); },
+  tileUrl(coords) { return L.Util.template(this._url, coords); },
+  createTile(coords, done) {
+    const el = document.createElement("div");
+    const img = new Image();
+    img.crossOrigin = "anonymous"; // Kartverket allows it; needed to read the pixels
+    img.onload = () => {
+      const ctx = Object.assign(document.createElement("canvas"), { width: 256, height: 256 }).getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0);
+      const src = ctx.getImageData(0, 0, 256, 256).data, gray = new Uint8ClampedArray(65536);
+      for (let i = 0, k = 0; i < 65536; i++, k += 4) gray[i] = TILE_LUT[(0.2126 * src[k] + 0.7152 * src[k + 1] + 0.0722 * src[k + 2]) | 0];
+      el._gray = gray;
+      el.appendChild(tileCanvas(gray, "sharp"));
+      if (map.getContainer().classList.contains("anti-flicker")) this._addSoft(el);
+      done(null, el);
+    };
+    img.onerror = e => done(e, el);
+    img.src = this.tileUrl(coords);
+    return el;
+  },
+  _addSoft(el) { if (el._gray && !el._soft) el.appendChild(el._soft = tileCanvas(softGray(el._gray), "soft")); },
+  // called when anti-flicker turns on: prepare softened copies of the tiles already on screen
+  ensureSoft() { for (const k in this._tiles) this._addSoft(this._tiles[k].el); }
+});
+const baseTiles = new DarkTiles("https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png", {
+  maxZoom: 18, className: "dark-tiles", attribution: "© Kartverket · Transit data © Entur (NLOD)"
+}).addTo(map);
+</script>
+<script src="transit.js"></script>
+</body>
+</html>
