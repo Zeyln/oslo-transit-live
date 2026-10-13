@@ -1,5 +1,7 @@
 # Oslo Transit Live
 
+## Try it here: [Oslo-Transit-Live](https://zeyln.github.io/oslo-transit-live/)
+
 A live map of public transport in Oslo, built on open data from [Entur](https://developer.entur.org/) and a dark
 version of [Kartverket](https://www.kartverket.no/)'s map. It runs entirely in the browser, with no server, build
 step or API keys.
