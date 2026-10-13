@@ -25,6 +25,8 @@
   .dark-tiles .soft { display: none; }
   .anti-flicker .dark-tiles .soft { display: block; }
   .leaflet-control-attribution { background: #0e0f11cc !important; color: var(--muted); }
+  /* vehicles drawn at normal size while the map zooms (see zoomCanvas in transit.js); above the map, below panels */
+  .zoom-overlay { position: absolute; left: 0; top: 0; z-index: 450; pointer-events: none; display: none; }
   .leaflet-control-attribution a { color: #9fb4d6; }
   .leaflet-bar a { background: var(--panel); color: var(--ink); border-color: var(--line); }
   .leaflet-bar a:hover { background: #22252a; }

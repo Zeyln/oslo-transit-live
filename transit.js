@@ -865,7 +865,72 @@ let stats = { modes: {}, est: 0, delays: [] }, lastFull = 0, lastFrame = 0;
 // in-between zoom on top of the stretched canvas) scaled them twice, then they jumped back when the zoom ended.
 let mapZooming = false;
 map.on("zoomstart", () => mapZooming = true);
-map.on("zoomend", () => mapZooming = false);
+map.on("zoomend", () => { mapZooming = false; endZoomOverlay(); });
+
+// Stretching the canvas also made every dot grow (or shrink) with the map until the zoom ended. So during a zoom
+// the vehicle canvas is hidden and the dots are drawn on a separate, unstretched overlay at their normal size:
+// - pinch: Leaflet updates the map state on every finger move ("zoom" events) → redraw at the new positions;
+// - animated zoom (snap after a pinch, double-tap, wheel, fly-in): Leaflet animates with CSS, so the overlay
+//   moves each dot from its start to its end position over the same 0.25 s curve (positions under a CSS
+//   scale+translate move linearly in the eased time, so this tracks the map exactly).
+const zoomCanvas = L.DomUtil.create("canvas", "zoom-overlay", map.getContainer());
+const ZOOM_ANIM_MS = 250, ease = cubicBezier(0, 0, 0.25, 1); // = Leaflet's .leaflet-zoom-anim transition
+let zoomOverlay = null; // { dots: [{ sprite, alpha, from, to }], t0 }
+function cubicBezier(x1, y1, x2, y2) { // CSS timing function: progress x -> eased y (Newton iterations)
+  const bz = (t, a, b) => 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3;
+  const dbz = (t, a, b) => 3 * a * (1 - t) ** 2 + 6 * (b - a) * t * (1 - t) + 3 * (1 - b) * t * t;
+  return x => {
+    let t = x;
+    for (let i = 0; i < 6; i++) { const d = dbz(t, x1, x2); if (Math.abs(d) < 1e-6) break; t -= (bz(t, x1, x2) - x) / d; }
+    return bz(Math.min(1, Math.max(0, t)), y1, y2);
+  };
+}
+function zoomDots(toPoint) { // every drawn vehicle with its sprite and current screen position
+  const dots = [];
+  layer.eachLayer(m => {
+    if (!m._radius || !m._map) return;
+    dots.push({ sprite: sprite(m.options, m._radius), alpha: m.options.dimmed ? DIM_ALPHA : 1,
+      from: map.latLngToContainerPoint(m.getLatLng()), to: toPoint?.(m.getLatLng()) });
+  });
+  return dots;
+}
+function paintZoomOverlay(dots, e) {
+  const size = map.getSize(), ctx = zoomCanvas.getContext("2d");
+  if (zoomCanvas.style.display !== "block") {
+    zoomCanvas.width = size.x * DPR; zoomCanvas.height = size.y * DPR;
+    zoomCanvas.style.width = size.x + "px"; zoomCanvas.style.height = size.y + "px";
+    zoomCanvas.style.display = "block"; renderer._container.style.visibility = "hidden";
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, size.x, size.y);
+  for (const d of dots) {
+    const x = d.to ? d.from.x + (d.to.x - d.from.x) * e : d.from.x, y = d.to ? d.from.y + (d.to.y - d.from.y) * e : d.from.y;
+    if (x < -40 || y < -40 || x > size.x + 40 || y > size.y + 40) continue;
+    ctx.globalAlpha = d.alpha;
+    ctx.drawImage(d.sprite.c, x - d.sprite.size / 2, y - d.sprite.size / 2, d.sprite.size, d.sprite.size);
+  }
+}
+map.on("zoom", () => { if (mapZooming && !map._animatingZoom && !zoomOverlay) paintZoomOverlay(zoomDots(), 0); }); // pinch
+map.on("zoomanim", ev => { // animated zoom: glide each dot to where it will be at the target view
+  const origin = map._getNewPixelOrigin(ev.center, ev.zoom), pane = map._getMapPanePos();
+  zoomOverlay = { dots: zoomDots(ll => map.project(ll, ev.zoom).subtract(origin).add(pane)), t0: performance.now() };
+  (function step() {
+    if (!zoomOverlay) return;
+    const x = Math.min(1, (performance.now() - zoomOverlay.t0) / ZOOM_ANIM_MS);
+    paintZoomOverlay(zoomOverlay.dots, ease(x));
+    if (x < 1) requestAnimationFrame(step);
+  })();
+});
+function endZoomOverlay() {
+  zoomOverlay = null;
+  if (zoomCanvas.style.display !== "block") return;
+  // Leaflet redraws the real canvas on the next animation frame after the zoom; swap back one frame later so
+  // the stretched old drawing never shows. Skip if another zoom has started meanwhile.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (mapZooming) return;
+    zoomCanvas.style.display = "none"; renderer._container.style.visibility = "";
+  }));
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
